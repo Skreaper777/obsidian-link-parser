@@ -1,7 +1,7 @@
 import csv
 import re
 from pathlib import Path
-from collections import defaultdict, deque
+from collections import defaultdict
 
 # ========== НАСТРОЙКИ ==========
 vault_path = Path(r"C:\Users\stasr\Documents\Obsidian Vault\obsidian-valut")
@@ -9,17 +9,17 @@ parent_note_relpath = Path(r"Теги\Навыки, личные качеств�
 allow_dirs = {
     "Теги",
     "_Планировщик",
+    "_WiKi",
 }
-max_depth = 4  # Максимальная глубина рекурсивных ссылок
+max_depth = 5
 # ===============================
 
 parent_note_stem = parent_note_relpath.stem
 link_pattern = re.compile(r"\[\[([^\[\]|]+)(?:\|[^\]]*)?\]\]")
 
-# 1. Построим карту ссылок: кто на кого ссылается
-link_map = defaultdict(set)  # ключ: note, значение: set(на кого ссылается)
-
-note_paths = {}  # имя → путь
+# Карта: кто на кого ссылается
+link_map = defaultdict(set)
+note_paths = {}
 
 for md_file in vault_path.rglob("*.md"):
     rel_path = md_file.relative_to(vault_path)
@@ -38,28 +38,31 @@ for md_file in vault_path.rglob("*.md"):
     for to_note in links:
         link_map[to_note].add(from_note)
 
-# 2. Рекурсивный сбор обратных ссылок с ограничением по глубине
-result = set()
-visited = set()
-queue = deque([(parent_note_stem, 0)])
+# Рекурсивно собираем все цепочки до max_depth
+def collect_paths(current, path, depth, results):
+    if depth > max_depth:
+        return
+    backlinks = link_map.get(current, [])
+    if not backlinks:
+        results.append(path)
+    else:
+        for b in backlinks:
+            if b in path:
+                continue  # защита от циклов
+            collect_paths(b, path + [b], depth + 1, results)
 
-while queue:
-    current, depth = queue.popleft()
-    if depth >= max_depth:
-        continue
+# Запуск
+all_paths = []
+collect_paths(parent_note_stem, [parent_note_stem], 0, all_paths)
 
-    for backlink in link_map.get(current, []):
-        if backlink not in visited:
-            visited.add(backlink)
-            result.add((parent_note_stem, backlink))
-            queue.append((backlink, depth + 1))
-
-# 3. Сохраняем в CSV (без preview)
-output_csv = "backlinks_deep.csv"
+# Сохраняем в CSV
+output_csv = "link_hierarchy.csv"
 with open(output_csv, 'w', newline='', encoding='utf-8') as f:
     writer = csv.writer(f)
-    writer.writerow(['Target Note', 'Backlink From'])
-    for target, source in sorted(result):
-        writer.writerow([target, str(note_paths.get(source, source))])
+    header = [f"Level {i}" for i in range(max_depth + 1)]
+    writer.writerow(header)
+    for path in all_paths:
+        row = path + [''] * (max_depth + 1 - len(path))  # заполнение пустых ячеек
+        writer.writerow(row)
 
 print(f"✅ CSV-файл сохранён: {output_csv}")
