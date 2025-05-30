@@ -12,18 +12,18 @@ allow_dirs = {
     "_Планировщик",
     "_WiKi",
 }
-max_depth = 5
+max_depth = 7
 yaml_stop_keys = {"Тип-записи"}
 
 value_by = {
     "yaml_key": "Приоритет",
     "map": {
         "6) Очень низкий 🟤": 1.0,
-        "5) Низкий 🔵": 2.0,
-        "4) Обычный 🟢": 5.0,
-        "3) Важный 🟡": 8.0,
-        "2) Очень важный 🟠": 11.0,
-        "1) Критически важный 🔴": 15.0
+        "5) Низкий 🔵": 3.0,
+        "4) Обычный 🟢": 6.0,
+        "3) Важный 🟡": 10.0,
+        "2) Очень важный 🟠": 13.0,
+        "1) Критически важный 🔴": 20.0
     }
 }
 
@@ -57,13 +57,14 @@ for md_file in vault_path.rglob("*.md"):
             yaml_text = content.split('---', 2)[1]
             metadata = yaml.safe_load(yaml_text)
             if isinstance(metadata, dict):
-                if any(k in metadata for k in yaml_stop_keys):
-                    stop_nodes.add(from_note)
-
-                # Если value_by включён — сохраняем значение
+                # Сохраняем значение value
                 if value_by:
                     val = metadata.get(value_by["yaml_key"])
                     yaml_values[from_note] = value_by["map"].get(val, 0.0)
+
+                # Добавляем в stop_nodes, если есть ключ-стоппер
+                if any(k in metadata for k in yaml_stop_keys):
+                    stop_nodes.add(from_note)
         except Exception:
             pass  # пропускаем YAML
 
@@ -77,17 +78,16 @@ def collect_paths(current, path, depth, results):
     if depth >= max_depth:
         results.append(path)
         return
-    if current in stop_nodes:
+
+    backlinks = link_map.get(current, [])
+    if not backlinks or current in stop_nodes:
         results.append(path)
         return
-    backlinks = link_map.get(current, [])
-    if not backlinks:
-        results.append(path)
-    else:
-        for b in backlinks:
-            if b in path:
-                continue
-            collect_paths(b, path + [b], depth + 1, results)
+
+    for b in backlinks:
+        if b in path:
+            continue
+        collect_paths(b, path + [b], depth + 1, results)
 
 all_paths = []
 collect_paths(parent_note_stem, [parent_note_stem], 0, all_paths)
@@ -105,7 +105,11 @@ with open(output_csv, 'w', newline='', encoding='utf-8') as f:
     for path in all_paths:
         row = path + [''] * (max_depth + 1 - len(path))
         if value_by:
-            last_node = row[-1] or row[-2]  # последний непустой
+            # Берём последний непустой узел из path
+            for node in reversed(row):
+                if node:
+                    last_node = node
+                    break
             value = yaml_values.get(last_node, 0.0)
             writer.writerow([value] + row)
         else:
